@@ -1,43 +1,23 @@
 import { NextResponse } from "next/server";
+import { nanoid } from "nanoid";
 import redis from "@/lib/redis";
 
-export async function GET(
-  req: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await context.params;
+export async function POST(req: Request) {
+  const body = await req.json();
+  const { content, max_views = 3, ttl_seconds } = body;
 
-    const paste = await redis.get<any>(`paste:${id}`);
-
-    if (!paste) {
-      return NextResponse.json({ error: "Paste not found" }, { status: 404 });
-    }
-
-    if (
-      (paste.max_views && paste.views >= paste.max_views) ||
-      (paste.expires_at && Date.now() > paste.expires_at)
-    ) {
-      return NextResponse.json({ error: "Paste expired" }, { status: 404 });
-    }
-
-    paste.views += 1;
-    await redis.set(`paste:${id}`, paste);
-
-    return NextResponse.json({
-      content: paste.content,
-      remaining_views: paste.max_views
-        ? paste.max_views - paste.views
-        : null,
-      expires_at: paste.expires_at
-        ? new Date(paste.expires_at).toISOString()
-        : null,
-    });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  if (!content || content.trim() === "") {
+    return NextResponse.json({ error: "Content required" }, { status: 400 });
   }
+
+  const id = nanoid(8);
+  const now = Date.now();
+  const paste = { content, views: 0, max_views, created_at: now, expires_at: ttl_seconds ? now + ttl_seconds*1000 : null };
+
+  await redis.set(`paste:${id}`, paste);
+
+  return NextResponse.json({
+    id,
+    url: `${process.env.BASE_URL}/p/${id}`,
+  });
 }
